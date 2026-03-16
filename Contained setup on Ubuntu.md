@@ -80,3 +80,119 @@ sudo chmod 644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | \
   sudo tee /etc/apt/sources.list.d/kubernetes.list
 ```
+```bash
+sudo apt update
+sudo apt install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+```
+
+```bash
+sudo systemctl enable kubelet
+```
+The current kubeadm install docs use pkgs.k8s.io, with one repository per Kubernetes minor version.
+
+
+3. Firewall ports
+Control-plane nodes
+```bash
+sudo ufw allow 6443/tcp
+sudo ufw allow 2379:2380/tcp
+sudo ufw allow 10250/tcp
+sudo ufw allow 10257/tcp
+sudo ufw allow 10259/tcp
+sudo ufw reload
+```
+
+Worker nodes
+```bash
+sudo ufw allow 10250/tcp
+sudo ufw allow 30000:32767/tcp
+sudo ufw reload
+```
+These are the currently documented Kubernetes control-plane and worker ports.
+
+
+4. Initialize the first control-plane node
+
+Pull images first:
+
+```bash
+sudo kubeadm config images pull --cri-socket unix:///run/containerd/containerd.sock
+```
+
+Then initialize.
+
+If you plan to use Calico with its usual default pool, use:
+
+```bash
+sudo kubeadm init \
+  --control-plane-endpoint "LOAD_BALANCER_IP:6443" \
+  --upload-certs \
+  --pod-network-cidr=192.168.0.0/16 \
+  --cri-socket unix:///run/containerd/containerd.sock
+```
+
+Set up kubectl for your admin user:
+
+```bash
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown "$(id -u)":"$(id -g)" $HOME/.kube/config
+```
+The HA kubeadm workflow uses a stable control-plane endpoint such as a load balancer VIP/DNS name.
+
+5. Install Calico
+Apply Calico after the first control plane is up.
+
+If you keep 192.168.0.0/16, use a Calico manifest/config that matches that Pod CIDR. Calico documentation notes its default IP pool is 192.168.0.0/16 unless changed.
+
+6. Join the second control-plane node
+
+From the first control-plane node, generate the join command:
+```bash
+kubeadm token create --print-join-command
+```
+Also get a certificate key:
+
+``` bash
+kubeadm init phase upload-certs --upload-certs
+```
+
+Then on the second control-plane node, use join, not init:
+
+```bash
+sudo kubeadm join LOAD_BALANCER_IP:6443 \
+  --token <token> \
+  --discovery-token-ca-cert-hash sha256:<hash> \
+  --control-plane \
+  --certificate-key <certificate-key> \
+  --cri-socket unix:///run/containerd/containerd.sock
+```
+That is the supported HA control-plane expansion flow.
+
+7. Join worker nodes
+
+On the first control-plane node:
+```bash
+kubeadm token create --print-join-command
+```
+
+On each worker:
+
+```bash
+sudo kubeadm join LOAD_BALANCER_IP:6443 \
+  --token <token> \
+  --discovery-token-ca-cert-hash sha256:<hash> \
+  --cri-socket unix:///run/containerd/containerd.sock
+```
+
+8. Verify
+
+```bash
+kubectl get nodes -o wide
+```
+
+
+
+
+
