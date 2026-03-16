@@ -15,4 +15,4 @@ Here are some ideas to get you started:
 - ⚡ Fun fact: ...
 -->
 
-SangayInfoTech is one of the finest IT solution providers, delivering innovative technology services, software development, and digital solutions to help businesses grow and succeed.
+SangayInfoTech is one of the finest IT solution providers in Bhutan, delivering innovative technology services, software development, and digital solutions to help businesses grow and succeed.
