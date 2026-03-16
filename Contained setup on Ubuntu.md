@@ -1,4 +1,4 @@
-1. Install containerd on all nodes
+**1. Install containerd on all nodes**
 
 ```bash
 sudo modprobe overlay
@@ -68,8 +68,8 @@ sudo systemctl status containerd
 Kubernetes recommends a compatible container runtime, and kubeadm-based installs commonly use containerd with the systemd cgroup driver.
 
 
-2. Install Kubernetes packages on all nodes
-Use the current Kubernetes repo for your target minor version. Example for v1.35:
+**2. Install Kubernetes packages on all nodes**
+<br>Use the current Kubernetes repo for your target minor version. Example for v1.35:
 
 ```bash
 sudo mkdir -p /etc/apt/keyrings
@@ -92,8 +92,8 @@ sudo systemctl enable kubelet
 The current kubeadm install docs use pkgs.k8s.io, with one repository per Kubernetes minor version.
 
 
-3. Firewall ports
-Control-plane nodes
+**3. Firewall ports**
+<br>Control-plane nodes
 ```bash
 sudo ufw allow 6443/tcp
 sudo ufw allow 2379:2380/tcp
@@ -112,7 +112,7 @@ sudo ufw reload
 These are the currently documented Kubernetes control-plane and worker ports.
 
 
-4. Initialize the first control-plane node
+**4. Initialize the first control-plane node**
 
 Pull images first:
 
@@ -141,12 +141,12 @@ sudo chown "$(id -u)":"$(id -g)" $HOME/.kube/config
 ```
 The HA kubeadm workflow uses a stable control-plane endpoint such as a load balancer VIP/DNS name.
 
-5. Install Calico
-Apply Calico after the first control plane is up.
+**5. Install Calico**
+<br>Apply Calico after the first control plane is up.
 
-If you keep 192.168.0.0/16, use a Calico manifest/config that matches that Pod CIDR. Calico documentation notes its default IP pool is 192.168.0.0/16 unless changed.
+<br>If you keep 192.168.0.0/16, use a Calico manifest/config that matches that Pod CIDR. Calico documentation notes its default IP pool is 192.168.0.0/16 unless changed.
 
-6. Join the second control-plane node
+**6. Join the second control-plane node**
 
 From the first control-plane node, generate the join command:
 ```bash
@@ -170,7 +170,7 @@ sudo kubeadm join LOAD_BALANCER_IP:6443 \
 ```
 That is the supported HA control-plane expansion flow.
 
-7. Join worker nodes
+**7. Join worker nodes**
 
 On the first control-plane node:
 ```bash
@@ -186,7 +186,7 @@ sudo kubeadm join LOAD_BALANCER_IP:6443 \
   --cri-socket unix:///run/containerd/containerd.sock
 ```
 
-8. Verify
+**8. Verify**
 
 ```bash
 kubectl get nodes -o wide
