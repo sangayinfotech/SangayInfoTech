@@ -1,177 +1,82 @@
-# Step 1. Install containerd
-
-**To install containerd, follow these steps on both VMs:**
-1) Load the br_netfilter module required for networking.
+1. Install containerd on all nodes
 
 ```bash
 sudo modprobe overlay
 sudo modprobe br_netfilter
+
 cat <<EOF | sudo tee /etc/modules-load.d/containerd.conf
 overlay
 br_netfilter
 EOF
 ```
-
-2) To allow iptables to see bridged traffic, as required by Kubernetes, we need to set the values of certain fields to 1.
 ```bash
-sudo tee /etc/sysctl.d/kubernetes.conf<<EOF
+cat <<EOF | sudo tee /etc/sysctl.d/kubernetes.conf
 net.bridge.bridge-nf-call-ip6tables = 1
 net.bridge.bridge-nf-call-iptables = 1
 net.ipv4.ip_forward = 1
 EOF
+
+sudo sysctl --system
+```
+```bash
+sudo apt update
+sudo apt install -y curl ca-certificates gnupg lsb-release apt-transport-https software-properties-common
 ```
 
-3) Apply the new settings without restarting.
+For containerd from Docker’s repo, use a keyring-based setup rather than apt-key:
 ```bash
-sudo sysctl –-system
-```
-		
-4) Install curl.
-```bash
-sudo apt install curl -y
-```
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
-5) Get the apt-key and then add the repository from which we will install containerd.
-```bash
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 ```
-
-6) Update and then install the containerd package.
 ```bash
-sudo apt update -y 
+sudo apt update
 sudo apt install -y containerd.io
 ```
+Generate config:
 
-7) Set up the default configuration file.
 ```bash
 sudo mkdir -p /etc/containerd
-sudo containerd config default | sudo tee /etc/containerd/config.toml
+sudo containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
 ```
 
+Then set:
+
 ```bash
-sudo vi /etc/containerd/config.toml
-```
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-    BinaryName = ""
-    CriuImagePath = ""
-    CriuPath = ""
-    CriuWorkPath = ""
-    IoGid = 0
-    IoUid = 0
-    NoNewKeyring = false
-    NoPivotRoot = false
-    Root = ""
-    ShimCgroup = ""
-    SystemdCgroup = true
+  SystemdCgroup = true
+```
+
+You can do that quickly with:
+
+```bash
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+```
+
+Then restart and enable:
 
 ```bash
 sudo systemctl restart containerd
-ps -ef | grep containerd
+sudo systemctl enable containerd
+sudo systemctl status containerd
 ```
+Kubernetes recommends a compatible container runtime, and kubeadm-based installs commonly use containerd with the systemd cgroup driver.
 
------------------------------------------------------------------------------------------------------------------------------------------------
-# Step 2. Install Kubernetes
 
-With our container runtime installed and configured, we are ready to install Kubernetes.
-1.Add the repository key and the repository.
+2. Install Kubernetes packages on all nodes
+Use the current Kubernetes repo for your target minor version. Example for v1.35:
 
 ```bash
- | sudo apt-key add -
-echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
-```
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key | \
+  sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+sudo chmod 644 /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
-2.Update your system and install the 3 Kubernetes modules.
-```bash
-sudo apt update -y
-sudo apt install -y kubelet kubeadm kubectl
-```
-
-3.Set up the firewall by installing the following rules on the master node:
-```bash
-sudo ufw allow 6443/tcp
-sudo ufw allow 2379/tcp
-sudo ufw allow 2380/tcp
-sudo ufw allow 10250/tcp
-sudo ufw allow 10251/tcp
-sudo ufw allow 10252/tcp
-sudo ufw allow 10255/tcp
-sudo ufw reload
-```
-
-
-4.And these rules on the worker node
-```bash
-sudo ufw allow 10251/tcp
-sudo ufw allow 10255/tcp
-sudo ufw reload
-```
-
-5.Finally, enable the kubelet service on both systems so we can start it
-```bash
-sudo systemctl enable kubelet
-```
-
------------------------------------------------------------------------------------------------------------------------------------------------
-
-# Step 3. Setting up the cluster
-
-1.Run the following command on the master node to allow Kubernetes to fetch the required images before cluster initialization:
-```bash
-sudo kubeadm config images pull
-```
-
-2.Initialize the First Master Node
-```bash
-sudo kubeadm init \ --control-plane-endpoint "LOAD_BALANCER_IP:6443" \ --upload-certs \ --pod-network-cidr=10.244.0.0/16 \ --cri-socket unix:///run/containerd/containerd.sock --v=5
-```
-
-3.Install Calico network plugin:
-```bash
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.0/manifests/calico.yaml
-```
-
-4.Install Ingress-NGINX Controller:
-```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.49.0/deploy/static/provider/baremetal/deploy.yaml
-```
-	
-5.Get the join command and certificate key from the first master node:
-```bash
-kubeadm token create --print-join-command --certificate-key $(kubeadm init phase upload-certs --upload-certs | tail -1)
-```
-
-Step 6: Join the other Master Node
-```bash
-sudo kubeadm init \
-  --control-plane-endpoint "172.30.30.13:6443" \
-  --upload-certs \
-  --pod-network-cidr=10.244.0.0/16 \
-  --cri-socket unix:///run/containerd/containerd.sock
-```
-
-6.All the master nodes
-```bash	
-mkdir -p $HOME/.kube
-sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-sudo chown $(id -u):$(id -g) $HOME/.kube/config
-```	
-
-7.Join the Worker Nodes
-Get the join command from the first master node:
-```bash
-kubeadm token create --print-join-command
-```
-
-8.Run the join command as a root user on each worker node:
-```bash
-sudo kubeadm join LOAD_BALANCER_IP:6443 \
-  --token <token> \
-  --discovery-token-ca-cert-hash sha256:<hash> \
-  --cri-socket unix:///run/containerd/containerd.sock
-```
-
-9.Check the status of all nodes:
-```bash
-kubectl get nodes
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /' | \
+  sudo tee /etc/apt/sources.list.d/kubernetes.list
 ```
